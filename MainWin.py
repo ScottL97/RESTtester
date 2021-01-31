@@ -16,6 +16,13 @@ class Ui_MainWindow(object):
         MainWindow.setObjectName("MainWindow")
         MainWindow.setEnabled(True)
         MainWindow.resize(1280, 960)
+        # 禁止拉伸窗口大小
+        MainWindow.setFixedSize(MainWindow.width(), MainWindow.height())
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(MainWindow.sizePolicy().hasHeightForWidth())
+        MainWindow.setSizePolicy(sizePolicy)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.sendButton = QtWidgets.QPushButton(self.centralwidget)
@@ -103,7 +110,7 @@ class Ui_MainWindow(object):
         self.decodeButton.setObjectName("decodeButton")
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1280, 26))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1280, 23))
         self.menubar.setObjectName("menubar")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QtWidgets.QStatusBar(MainWindow)
@@ -115,7 +122,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "REST接口测试工具V0.8 - liuxinhao4@huawei.com"))
+        MainWindow.setWindowTitle(_translate("MainWindow", "REST接口测试工具V0.9"))
         self.sendButton.setText(_translate("MainWindow", "发送请求"))
         self.methodComboBox.setItemText(0, _translate("MainWindow", "GET"))
         self.methodComboBox.setItemText(1, _translate("MainWindow", "POST"))

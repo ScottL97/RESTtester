@@ -6,49 +6,29 @@
 @Date  : 2020/6/27 16:02
 @Desc  :
 """
-
 import requests
 import threading
 import socket
 import sys
 import json
-import time
 import base64
 from urllib import parse
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
 from PyQt5.QtCore import QStringListModel, QThread, pyqtSignal
 from MainWin import Ui_MainWindow
 
-reqQueue = []
-addUp = 0
-beforeLen = 0
 
+class HTTPServer(QThread):
+    signal = pyqtSignal(list)
 
-def handle_client(cli_socket):
-    global reqQueue
-    global addUp
-
-    addUp += 1
-    # print(addup)
-    request_data = cli_socket.recv(1024)
-    reqQueue.append(parse.unquote(request_data.decode('utf-8')))
-    # print(reqQueue)
-    # 构造响应数据
-    response_start_line = "HTTP/1.1 200 OK\r\n"
-    response_headers = "Server: test server\r\n"
-    response_body = "<div>test body</div>"
-    response = response_start_line + response_headers + "\r\n" + response_body
-    # 向客户端返回响应数据
-    cli_socket.send(bytes(response, "utf-8"))
-    # 关闭客户端连接
-    cli_socket.close()
-
-
-class HTTPServer:
-    def __init__(self, port):
+    def __init__(self, window, port):
+        super().__init__()
+        self.window = window
         self.hostname = socket.gethostname()
         self.address = socket.gethostbyname(self.hostname)
+        # self.address = "127.0.0.1"
         self.port = port
+        self.reqQueue = []
 
     def start_server(self):
         server_thread = HTTPServerThread(self)
@@ -59,29 +39,51 @@ class HTTPServer:
         server_socket.bind((self.address, self.port))
         server_socket.listen(128)
         print("----------------------------------------")
-
         while True:
             client_socket, client_address = server_socket.accept()
-            print("client: [%s:%s]" % client_address)
-            handle_client_thread = HTTPHandlerThread(client_socket)
-            handle_client_thread.start()
+            print("[client]: ", client_address)
+            self.handle_client(client_socket)
+            # print("start to show")
+            # 在界面显示请求列表
+            self.signal.emit(self.reqQueue)
+
+    def handle_client(self, cli_socket):
+        request_data = cli_socket.recv(1024)
+        # print(request_data)
+        self.reqQueue.append(parse.unquote(request_data.decode('utf-8')))
+        # print(reqQueue)
+        # 构造响应数据
+        response_start_line = "HTTP/1.1 200 OK\r\n"
+        response_headers = "Server: test server\r\n"
+        response_body = "<div>test body</div>"
+        response = response_start_line + response_headers + "\r\n" + response_body
+        # 向客户端返回响应数据
+        cli_socket.send(bytes(response, "utf-8"))
+        # 关闭客户端连接
+        cli_socket.close()
+
+    def clear_queue(self):
+        self.reqQueue = []
 
 
 class MainWin(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super(MainWin, self).__init__()
-        self.thread = HTTPDisplayThread()
         self.setupUi(self)
-        self.server = HTTPServer(8000)
+        # 启动服务器
+        self.server = HTTPServer(self, 8000)
         self.server.start_server()
         self.serverStatusLabel.setText(self.server.address + ":" + str(self.server.port) + "已连接！")
         self.urlLineEdit.setText('http://' + self.server.address + ":" + str(self.server.port))
+        # 设置按钮点击事件
         self.sendButton.clicked.connect(self.send_rest)
         self.reqListView.clicked.connect(self.display_details)
         self.clearButton.clicked.connect(self.clear_requests)
         self.encodeButton.clicked.connect(self.start_encode)
         self.decodeButton.clicked.connect(self.start_decode)
-        self.start_display()
+        # 点击关闭按钮时释放服务器端口，结束服务器线程
+        # 设置在请求列表中新增请求的信号处理函数
+        self.server.signal.connect(self.display)
 
     def send_rest(self):
         method = self.methodComboBox.currentText()
@@ -93,21 +95,18 @@ class MainWin(QMainWindow, Ui_MainWindow):
         except Exception as e:
             print(e)
             self.resTextEdit.setText(str(e))
-
         if (len(self.reqTextEdit.toPlainText()) != 0) & (data == ''):
             print('json loads failed: ' + self.reqTextEdit.toPlainText())
             return 1
-
         if (data != '') & (not isinstance(data, dict)):
             print('data is not a json: ' + str(data))
             self.resTextEdit.setText('data is not a json: ' + str(data))
             return 1
-
         try:
             if method == 'GET':
-                res = requests.get(url, data)
+                res = requests.get(url, data, verify=False)
             else:
-                res = requests.post(url, json=data)
+                res = requests.post(url, json=data, verify=False)
             if res.status_code == 200:
                 self.resTextEdit.setText('200\n' + str(res.headers) + '\n' + res.text)
             else:
@@ -118,49 +117,33 @@ class MainWin(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "连接错误", "URL无法连接，请检查")
             self.resTextEdit.setText(str(e))
 
-    def start_display(self):
-        self.thread.signal.connect(self.display)
-        self.thread.start()
-
-    def display(self):
-        global reqQueue
-        global beforeLen
-        global addUp
-
-        if addUp > beforeLen:
-            beforeLen = addUp
-            slm = QStringListModel()
-            slm.setStringList(reqQueue)
-            self.reqListView.setModel(slm)
-            self.clearButton.setText("清空列表（" + str(addUp) + "）")
+    def display(self, queue):
+        slm = QStringListModel()
+        slm.setStringList(queue)
+        self.reqListView.setModel(slm)
+        self.clearButton.setText("清空列表（" + str(len(queue)) + "）")
 
     def display_details(self, index):
-        QMessageBox.information(self, "REST Request", reqQueue[index.row()])
+        QMessageBox.information(self, "REST Request", self.server.reqQueue[index.row()])
 
     def clear_requests(self):
-        global reqQueue
-        global beforeLen
-        global addUp
-
-        reqQueue = []
+        self.server.clear_queue()
         slm = QStringListModel()
-        slm.setStringList(reqQueue)
+        slm.setStringList([])
         self.reqListView.setModel(slm)
         self.clearButton.setText("清空列表")
-        beforeLen = 0
-        addUp = 0
 
     def start_encode(self):
         try:
-            afterEncode = base64.b64encode(bytes(self.decodeTextEdit.toPlainText(), 'utf-8'))
-            self.encodeTextEdit.setText(str(afterEncode, 'utf-8'))
+            after_encode = base64.b64encode(bytes(self.decodeTextEdit.toPlainText(), 'utf-8'))
+            self.encodeTextEdit.setText(str(after_encode, 'utf-8'))
         except Exception as e:
             print(e)
 
     def start_decode(self):
         try:
-            afterDecode = base64.b64decode(self.encodeTextEdit.toPlainText())
-            self.decodeTextEdit.setText(str(afterDecode, 'utf-8'))
+            after_decode = base64.b64decode(self.encodeTextEdit.toPlainText())
+            self.decodeTextEdit.setText(str(after_decode, 'utf-8'))
         except Exception as e:
             print(e)
 
@@ -174,32 +157,6 @@ class HTTPServerThread(threading.Thread):
         print("HTTP Server starting: " + self.server.address + ":" + str(self.server.port))
         self.server.run_server()
         print("HTTP Server stopped.")
-
-
-class HTTPHandlerThread(threading.Thread):
-    def __init__(self, client_socket):
-        threading.Thread.__init__(self)
-        self.client_socket = client_socket
-
-    def run(self):
-        print("Start client socket handler...")
-        handle_client(self.client_socket)
-        print("Client socket handler finished.")
-
-
-class HTTPDisplayThread(QThread):
-    signal = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-
-    def __del__(self):
-        self.wait()
-
-    def run(self):
-        while True:
-            self.signal.emit()
-            time.sleep(1)
 
 
 if __name__ == "__main__":
